@@ -1,0 +1,31 @@
+{
+  "width": 720,
+  "height": 1560,
+  "fps": 60,
+  "direction": "Established Quiz of Thrones purple game UI",
+  "palette": {
+    "background": "#140920",
+    "panel": "#241830",
+    "border": "#493452",
+    "muted": "#baa1d8",
+    "gold": "#ffc531",
+    "green": "#22cb76",
+    "correct": "#153c2d"
+  },
+  "font": "assets/fonts/BYekan.ttf",
+  "latin_font": "C:/Windows/Fonts/tahoma.ttf",
+  "audio": "assets/approved-full-mix.m4a",
+  "avatar": "assets/avatar.png",
+  "logo": "assets/logo.png",
+  "timing": {
+    "question_seconds": 12,
+    "countdown_start": 1,
+    "countdown_seconds": 8,
+    "selection_at": 8.75,
+    "reveal_at": 9.25,
+    "cta_start": 24,
+    "cta_entrance": 0.65,
+    "comment_seconds": 3
+  },
+  "audio_note": "Recovered full approved mix, including voice at 24 seconds. Original isolated voice/music stems were not recovered."
+}

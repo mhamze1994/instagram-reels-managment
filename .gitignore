@@ -1,0 +1,12 @@
+.venv/
+data/
+.env
+__pycache__/
+*.zip
+*.log
+android/build/
+android/.local-signing.p12
+android/*.apk
+android/*.idsig
+auth-defaults.json
+bootstrap-local.py

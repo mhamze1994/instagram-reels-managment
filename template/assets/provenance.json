@@ -1,0 +1,29 @@
+{
+  "reference": {
+    "file": "reference/09-football-iran.mp4",
+    "source": "User-provided surviving Series 03 ZIP on Desktop",
+    "sha256": "b66119a0248edc23151ab81fc9bd0410ab9e1fde0de3de1bdf8d74e05cd2a5a4"
+  },
+  "assets": [
+    {
+      "file": "assets/avatar.png",
+      "source": "../Media/fluff.png",
+      "treatment": "First supplied sprite pose; transparent bounds trimmed using alpha >24 for the layout bounds."
+    },
+    {
+      "file": "assets/logo.png",
+      "source": "reference/09-football-iran.mp4 at 25s",
+      "treatment": "Circle crop of the approved logo, recovered from encoded frame; not the lost original master"
+    },
+    {
+      "file": "assets/approved-full-mix.m4a",
+      "source": "reference/09-football-iran.mp4",
+      "treatment": "AAC audio copied without re-encoding; music, SFX and CTA voice remain mixed"
+    },
+    {
+      "file": "assets/fonts/BYekan.ttf",
+      "source": "User-installed B Yekan font",
+      "treatment": "Copied unchanged"
+    }
+  ]
+}
