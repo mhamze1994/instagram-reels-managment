@@ -30,7 +30,7 @@ run(TOOLS / 'aapt2.exe', 'link', '-I', ANDROID, '--manifest', ROOT / 'AndroidMan
 sources = sorted((ROOT / 'src').rglob('*.java')) + sorted((OUT / 'generated').rglob('*.java'))
 argfile = OUT / 'javac.args'
 argfile.write_text('\n'.join('"' + str(x).replace('\\', '/') + '"' for x in sources), encoding='utf-8')
-run(JAVA / 'javac.exe', '-encoding', 'UTF-8', '-source', '8', '-target', '8', '-bootclasspath', ANDROID, '-d', OUT / 'classes', '@' + str(argfile))
+run(JAVA / 'javac.exe', '-encoding', 'UTF-8', '--release', '8', '-classpath', ANDROID, '-d', OUT / 'classes', '@' + str(argfile))
 classes_jar = OUT / 'classes.jar'
 with zipfile.ZipFile(classes_jar, 'w') as archive:
     for path in (OUT / 'classes').rglob('*.class'):
