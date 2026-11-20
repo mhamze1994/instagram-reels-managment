@@ -10,3 +10,4 @@ android/*.apk
 android/*.idsig
 auth-defaults.json
 bootstrap-local.py
+.upload-password.txt

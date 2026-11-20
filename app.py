@@ -29,19 +29,17 @@ TEMPLATE = Path(os.environ.get('PANEL_TEMPLATE', ROOT / 'template')).resolve()
 FFMPEG = os.environ.get('QUIZ_FFMPEG') or shutil.which('ffmpeg') or r'C:\Program Files\KMPlayer 64X\LAVFilters64\ffmpeg.exe'
 MAX_FILE = 512 * 1024 * 1024
 stop_worker = threading.Event()
+action_lock = threading.Lock()
 
 
 def auth_config():
-    if os.environ.get('PANEL_PASSWORD'):
-        return {'username': os.environ.get('PANEL_USER', 'quiz'), 'plain': os.environ['PANEL_PASSWORD']}
-    path = ROOT / 'auth-defaults.json'
-    if path.exists():
-        return json.loads(path.read_text(encoding='utf-8'))
-    return None
+    # Two fixed tool accounts; legacy single-user configuration no longer applies.
+    return {'users': ['user1', 'user2'], 'salt': b'quiz-studio-two-users-v1'.hex(),
+            'iterations': 210000, 'hash': 'b15d388185c05e4b8fa786b5b5b33a376377187f293a3a180f1aee513891959d'}
 
 
 def password_matches(config, user, password):
-    if not config or not secrets.compare_digest(user, config['username']):
+    if not config or user not in config.get('users', [config.get('username')]):
         return False
     if 'plain' in config:
         return hmac.compare_digest(password.encode(), config['plain'].encode())
@@ -330,6 +328,7 @@ async def guard(request: Request, call_next):
                 good = False
             if not good:
                 return Response(status_code=401, headers={'WWW-Authenticate': 'Basic realm="Quiz Studio", charset="UTF-8"'})
+            request.state.username = user
         elif lan_preview:
             try:
                 if not ipaddress.ip_address(request.client.host).is_private:
@@ -365,14 +364,49 @@ def info():
             'max_upload_mb': MAX_FILE // 1048576, 'max_batch': 300}
 
 
+@app.get('/api/me')
+def me(request: Request):
+    return {'username': request.state.username}
+
+
+def read_actions():
+    path = DATA / 'download-actions.json'
+    return json.loads(path.read_text(encoding='utf-8')) if path.exists() else {}
+
+
+@app.post('/api/videos/{ident}/actions/{action}')
+def record_action(ident: str, action: str, request: Request):
+    if action not in ('video', 'cover', 'caption'):
+        raise HTTPException(400, 'اقدام نامعتبر است.')
+    get_video(ident)
+    with action_lock:
+        actions = read_actions()
+        flags = actions.setdefault(request.state.username, {}).setdefault(ident, {})
+        flags.setdefault(action, time.time())
+        # Commit the tiny file atomically, then update the existing video status.
+        path = DATA / 'download-actions.json'
+        temporary = path.with_suffix('.tmp')
+        temporary.write_text(json.dumps(actions, ensure_ascii=False), encoding='utf-8')
+        os.replace(temporary, path)
+        complete = all(name in flags for name in ('video', 'cover', 'caption'))
+        if complete:
+            with db() as c:
+                c.execute("UPDATE videos SET status='published', published=COALESCE(published,?) WHERE id=?", (time.time(), ident))
+    return {'actions': list(flags), 'complete': complete, 'video': get_video(ident)}
+
+
 @app.get('/api/videos')
-def videos(q: str = '', status: str = '', category: str = '', page: int = 1, limit: int = 30):
+def videos(request: Request, q: str = '', status: str = '', category: str = '', page: int = 1, limit: int = 30):
     page, limit = max(1, page), min(100, max(1, limit))
     where, args = ['1=1'], []
     if q:
         where.append('(title LIKE ? OR caption LIKE ?)')
         args.extend(['%' + q[:200] + '%'] * 2)
-    if status:
+    if status == 'queued':
+        where.append("status='ready'")
+    elif status == 'published':
+        where.append("status IN ('published','trial')")
+    elif status:
         where.append('status=?'); args.append(status)
     else:
         where.append("status!='archived'")
@@ -381,10 +415,14 @@ def videos(q: str = '', status: str = '', category: str = '', page: int = 1, lim
     sql = ' AND '.join(where)
     with db() as c:
         total = c.execute('SELECT COUNT(*) FROM videos WHERE ' + sql, args).fetchone()[0]
-        rows = c.execute('SELECT * FROM videos WHERE ' + sql + ' ORDER BY created DESC LIMIT ? OFFSET ?', args + [limit, (page - 1) * limit]).fetchall()
+        order = 'COALESCE(published,created) DESC, created DESC' if status == 'published' else 'created DESC'
+        rows = c.execute('SELECT * FROM videos WHERE ' + sql + ' ORDER BY ' + order + ' LIMIT ? OFFSET ?', args + [limit, (page - 1) * limit]).fetchall()
         cats = [x[0] for x in c.execute('SELECT DISTINCT category FROM videos ORDER BY category')]
         counts = {x[0]: x[1] for x in c.execute('SELECT status,COUNT(*) FROM videos GROUP BY status')}
-    return {'items': [public_video(x) for x in rows], 'total': total, 'categories': cats, 'counts': counts, 'page': page}
+    with action_lock:
+        actions = read_actions().get(request.state.username, {})
+    items = [dict(public_video(x), actions=list(actions.get(x['id'], {}))) for x in rows]
+    return {'items': items, 'total': total, 'categories': cats, 'counts': counts, 'page': page}
 
 
 @app.get('/api/videos/{ident}')
@@ -526,7 +564,7 @@ def index():
 
 @app.get('/{filename}')
 def assets(filename: str):
-    allowed = {'app.js': 'text/javascript', 'style.css': 'text/css', 'manifest.webmanifest': 'application/manifest+json',
+    allowed = {'app.js': 'text/javascript', 'library.js': 'text/javascript', 'style.css': 'text/css', 'manifest.webmanifest': 'application/manifest+json',
                'sw.js': 'text/javascript', 'icon.svg': 'image/svg+xml', 'icon-192.png': 'image/png',
                'icon-512.png': 'image/png', 'Yekan.ttf': 'font/ttf'}
     if filename not in allowed or not (ROOT / 'static' / filename).is_file():

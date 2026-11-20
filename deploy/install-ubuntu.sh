@@ -26,8 +26,8 @@ install -m 644 "$SOURCE_DIR/deploy/quiz-studio.service" /etc/systemd/system/quiz
 systemctl daemon-reload
 systemctl enable --now quiz-studio
 systemctl restart quiz-studio
-echo 'Service installed at 127.0.0.1:8091. Next: configure your HTTPS Nginx subdomain.'
-echo 'Nginx was NOT modified. Use deploy/nginx.conf.example inside its HTTPS server block.'
+echo 'Service installed at 127.0.0.1:8091. Accounts: user1 and user2.'
+echo 'Nginx is modified only when --configure-nginx is supplied.'
 echo 'Status: systemctl status quiz-studio'
 if [ "${1:-}" = --configure-nginx ]; then
   bash "$SOURCE_DIR/deploy/configure-nginx.sh"

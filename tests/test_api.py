@@ -20,7 +20,7 @@ class PanelIntegrationTests(unittest.TestCase):
         cls.previous_data = app.DATA
         cls.temp = tempfile.TemporaryDirectory(prefix='api-tests-', dir=app.ROOT / 'data')
         app.DATA = Path(cls.temp.name)
-        cls.password = secrets.token_urlsafe(24)
+        cls.password = 'quiz1332'
         cls.env = patch.dict(os.environ, {'PANEL_PASSWORD': cls.password, 'PANEL_USER': 'admin',
                                          'PANEL_ORIGIN': 'http://testserver', 'PANEL_PREVIEW_READONLY': '0'})
         cls.env.start()
@@ -29,7 +29,7 @@ class PanelIntegrationTests(unittest.TestCase):
         cls.worker.start()
         cls.client_context = TestClient(app.app)
         cls.client = cls.client_context.__enter__()
-        token = base64.b64encode(('admin:' + cls.password).encode()).decode()
+        token = base64.b64encode(('user1:' + cls.password).encode()).decode()
         cls.auth = {'Authorization': 'Basic ' + token, 'Origin': 'http://testserver'}
         cls.video = app.ROOT.parent / 'reels-template/renders/football-nostalgia-2026-11-13/video.mp4'
         if not cls.video.exists():
@@ -49,6 +49,7 @@ class PanelIntegrationTests(unittest.TestCase):
         self.assertEqual(self.client.get('/').status_code, 401)
         self.assertEqual(self.client.get('/api/videos').status_code, 401)
         self.assertEqual(self.client.get('/health').status_code, 200)
+        self.assertEqual(self.client.get('/library.js', headers=self.auth).status_code, 200)
         bad = dict(self.auth, Origin='https://elsewhere.invalid')
         self.assertEqual(self.client.post('/api/bank/sync', headers=bad).status_code, 403)
         self.assertEqual(self.client.get('/.env', headers=self.auth).status_code, 404)
@@ -79,6 +80,41 @@ class PanelIntegrationTests(unittest.TestCase):
         self.assertEqual(self.client.get('/api/videos?status=trial', headers=self.auth).json()['total'], 1)
         data['published_url'] = 'javascript:alert(1)'
         self.assertEqual(self.client.patch('/api/videos/' + video['id'], headers=self.auth, json=data).status_code, 422)
+
+    def test_two_accounts_actions_and_publication_order(self):
+        user2 = {**self.auth, 'Authorization': 'Basic ' + base64.b64encode(b'user2:quiz1332').decode()}
+        self.assertEqual(self.client.get('/api/me', headers=user2).json()['username'], 'user2')
+        legacy = {**self.auth, 'Authorization': 'Basic ' + base64.b64encode(('admin:' + self.password).encode()).decode()}
+        self.assertEqual(self.client.get('/api/me', headers=legacy).status_code, 401)
+        a, b = secrets.token_hex(16), secrets.token_hex(16)
+        with app.db() as c:
+            for ident, created in [(a, 100), (b, 200)]:
+                c.execute("INSERT INTO videos(id,title,category,caption,created,size,duration,sha256) VALUES(?,?,?,?,?,?,?,?)", (ident, 'workflow', 'workflow-test', 'caption', created, 100, 39, ident))
+        def action(ident, name, headers=self.auth):
+            response = self.client.post('/api/videos/' + ident + '/actions/' + name, headers=headers)
+            self.assertEqual(response.status_code, 200, response.text)
+            return response.json()
+        self.assertFalse(action(a, 'video')['complete'])
+        self.assertFalse(action(a, 'caption')['complete'])
+        self.assertFalse(action(a, 'cover', user2)['complete'])
+        queued = self.client.get('/api/videos?status=queued&category=workflow-test', headers=self.auth).json()
+        self.assertEqual(queued['total'], 2)
+        own = next(v for v in queued['items'] if v['id'] == a)
+        self.assertEqual(set(own['actions']), {'video','caption'})
+        with patch.object(app.time, 'time', return_value=500):
+            result = action(a, 'cover')
+        self.assertTrue(result['complete'])
+        self.assertEqual(result['video']['status'], 'published')
+        # Old response is a stable client snapshot until explicitly fetched again.
+        self.assertEqual(queued['total'], 2)
+        action(b, 'video'); action(b, 'caption')
+        with patch.object(app.time, 'time', return_value=400): action(b, 'cover')
+        with patch.object(app.time, 'time', return_value=900): action(a, 'video')
+        published = self.client.get('/api/videos?status=published&category=workflow-test', headers=self.auth).json()
+        self.assertEqual([v['id'] for v in published['items']], [a,b])
+        self.assertEqual(published['items'][0]['published'], 500)
+        self.assertEqual(self.client.get('/api/videos?status=queued&category=workflow-test', headers=self.auth).json()['total'], 0)
+        self.assertEqual(self.client.post('/api/videos/'+a+'/actions/invalid', headers=self.auth).status_code, 400)
 
     def test_rejects_invalid_video_and_paths(self):
         response = self.client.post('/api/upload', headers=self.auth, files={'video': ('fake.mp4', b'not a video', 'video/mp4')})
